@@ -76,6 +76,10 @@ pub struct AtomicBuffer {
 
 impl AtomicBuffer {
 
+    pub fn capacity(&self) -> Index {
+        self.length as Index
+    }
+
     pub fn wrap(buffer: *mut u8, length: u32) -> AtomicBuffer{
         AtomicBuffer{buffer, length}
     }
@@ -103,6 +107,10 @@ impl AtomicBuffer {
     }
 
     pub fn put_bytes(&self, index: Index, src_buffer: &AtomicBuffer, src_index: Index, length: Index) {
+        unimplemented!()
+    }
+
+    pub fn set_memory(&self, p0: i32, p1: i32, p2: i32) {
         unimplemented!()
     }
 

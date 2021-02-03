@@ -25,6 +25,23 @@ impl RingBufferDescriptor {
     }
 }
 
+/**
+* Header length made up of fields for message length, message type, and then the encoded message.
+* <p>
+* Writing of the record length signals the message recording is complete.
+* <pre>
+*   0                   1                   2                   3
+*   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+*  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+*  |R|                       Record Length                         |
+*  +-+-------------------------------------------------------------+
+*  |                              Type                             |
+*  +---------------------------------------------------------------+
+*  |                       Encoded Message                        ...
+* ...                                                              |
+*  +---------------------------------------------------------------+
+* </pre>
+*/
 struct RecordDescriptor;
 
 impl RecordDescriptor {
@@ -75,7 +92,6 @@ impl RecordDescriptor {
 }
 
 
-
 pub trait RingBuffer {
 
     fn capacity(&self) -> Index;
@@ -83,6 +99,11 @@ pub trait RingBuffer {
     fn write(&self, msg_type_id: i32, src_buffer: &AtomicBuffer, src_index: Index, length: Index) -> bool;
 
     // fn try_claim(msg_type_id: i32, length: Index) -> Index
+    fn read<T: MessageHandler>(&self, handler: &T,  message_count_limit: u32) -> u32;
+}
+
+pub trait MessageHandler {
+    fn on_message(&self, msg_type_id: i32, buffer: &AtomicBuffer, index: Index, length: Index);
 }
 
 pub struct OneToOneRingBuffer {
@@ -103,8 +124,26 @@ impl OneToOneRingBuffer {
             panic!("encoded message exceeds maxMsgLength of {}  length={}", self.max_msg_length, length)
         }
     }
-}
 
+    fn new(buffer: AtomicBuffer) -> OneToOneRingBuffer{
+
+        let capacity = buffer.capacity() - RingBufferDescriptor::TRAILER_LENGTH;
+
+        RingBufferDescriptor::check_capacity(capacity);
+
+        OneToOneRingBuffer {
+            buffer,
+            capacity,
+            max_msg_length: capacity / 8,
+            tail_position_index: capacity + RingBufferDescriptor::TAIL_POSITION_OFFSET,
+            head_cache_position_index: capacity + RingBufferDescriptor::HEAD_CACHE_POSITION_OFFSET,
+            head_position_index: capacity + RingBufferDescriptor::HEAD_POSITION_OFFSET,
+            correlation_id_counter_index: capacity + RingBufferDescriptor::CORRELATION_COUNTER_OFFSET,
+            consumer_heartbeat_index: capacity + RingBufferDescriptor::CONSUMER_HEARTBEAT_OFFSET,
+        }
+
+    }
+}
 
 impl RingBuffer for OneToOneRingBuffer {
     fn capacity(&self) -> Index {
@@ -170,4 +209,53 @@ impl RingBuffer for OneToOneRingBuffer {
         return true;
     }
 
+    fn read<T: MessageHandler>(&self, handler: &T,  message_count_limit: u32) -> u32 {
+        let head: i64 = self.buffer.get_i64(self.head_position_index);
+        let head_index = (head & (self.capacity - 1) as i64) as Index;
+        let contiguous_block_length: Index = self.capacity - head_index;
+        let mut messages_read = 0;
+        let mut bytes_read = 0;
+
+        // auto cleanup = util::InvokeOnScopeExit {
+        // [&]()
+        // {
+        // if (bytes_read != 0)
+        // {
+        // m_buffer.setMemory(head_index, static_cast<std::size_t>(bytes_read), 0);
+        // m_buffer.putInt64Ordered(m_headPositionIndex, head + bytes_read);
+        // }
+        // }};
+        //
+        while (bytes_read < contiguous_block_length) && (messages_read < message_count_limit) {
+            let record_index: Index = head_index + bytes_read;
+            let header: i64 = self.buffer.get_int64_volatile(record_index);
+            let record_length: Index = RecordDescriptor::record_length(header);
+
+            if record_length <= 0
+            {
+                break;
+            }
+
+            bytes_read += bit_util::align(record_length, RecordDescriptor::ALIGNMENT);
+
+            let msg_type_id: Index = RecordDescriptor::message_type_id(header);
+            if RecordDescriptor::PADDING_MSG_TYPE_ID == msg_type_id
+            {
+                continue;
+            }
+
+            messages_read += 1;
+            handler.on_message(msg_type_id,
+                               &self.buffer,
+                               RecordDescriptor::encoded_msg_offset(record_index),
+                               record_length - RecordDescriptor::HEADER_LENGTH);
+        }
+        // TODO: Moved here for now need error handling from on message or a scope guard
+        if bytes_read != 0
+        {
+            self.buffer.set_memory(head_index, bytes_read, 0);
+            self.buffer.put_i64_ordered(self.head_position_index, head + bytes_read as i64);
+        }
+        messages_read
+    }
 }
