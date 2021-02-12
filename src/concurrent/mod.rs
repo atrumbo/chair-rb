@@ -1,7 +1,7 @@
 use crate::util::Index;
 use std::mem::size_of;
 
-mod ring_buffer;
+pub mod ring_buffer;
 mod atomic;
 
 pub trait IdleStrategy{
@@ -92,26 +92,39 @@ impl AtomicBuffer {
     }
 
     pub fn put_i64(&self, index: Index, value: i64) {
-        unimplemented!()
+        self.bounds_check(index, size_of::<i64>());
+        unsafe {
+            std::ptr::write(self.buffer.offset(index as isize) as *mut i64, value);
+        }
     }
 
     pub fn put_i64_ordered(&self, index: Index, value: i64) {
-        unimplemented!()
+        self.bounds_check(index, size_of::<i64>());
+        unsafe {
+            atomic::put_i64_ordered(self.buffer.offset(index as isize) as *mut i64, value);
+        }
     }
 
     pub fn get_int64_volatile(&self, index: Index) -> i64 {
         self.bounds_check(index, size_of::<i64>());
         unsafe {
-            atomic::get_int64_volatile(self.buffer.offset(index as isize) as *const i64)
+            atomic::get_i64_volatile(self.buffer.offset(index as isize) as *const i64)
         }
     }
 
     pub fn put_bytes(&self, index: Index, src_buffer: &AtomicBuffer, src_index: Index, length: Index) {
-        unimplemented!()
+        self.bounds_check(index, length as usize);
+        unsafe {
+            std::ptr::copy_nonoverlapping(src_buffer.buffer.offset(src_index as isize), self.buffer.offset(index as isize), length as usize);
+        }
     }
 
-    pub fn set_memory(&self, p0: i32, p1: i32, p2: i32) {
-        unimplemented!()
+    pub fn set_memory(&self, index: Index, length: Index, value: u8) {
+        self.bounds_check(index, length as usize);
+        unsafe {
+            std::ptr::write_bytes(self.buffer.offset(index as isize), value, length as usize);
+
+        }
     }
 
     #[cfg(disable_bounds_check)]

@@ -98,13 +98,15 @@ pub trait RingBuffer {
 
     fn write(&self, msg_type_id: i32, src_buffer: &AtomicBuffer, src_index: Index, length: Index) -> bool;
 
-    // fn try_claim(msg_type_id: i32, length: Index) -> Index
-    fn read<T: MessageHandler>(&self, handler: &T,  message_count_limit: u32) -> u32;
+    fn read<'a, F>(&'a self, handler: F, message_count_limit: u32) -> u32
+    where F: FnMut(i32, &'a AtomicBuffer, Index, Index);
 }
 
 pub trait MessageHandler {
     fn on_message(&self, msg_type_id: i32, buffer: &AtomicBuffer, index: Index, length: Index);
 }
+
+
 
 pub struct OneToOneRingBuffer {
     buffer: AtomicBuffer,
@@ -125,7 +127,7 @@ impl OneToOneRingBuffer {
         }
     }
 
-    fn new(buffer: AtomicBuffer) -> OneToOneRingBuffer{
+    pub fn new(buffer: AtomicBuffer) -> OneToOneRingBuffer{
 
         let capacity = buffer.capacity() - RingBufferDescriptor::TRAILER_LENGTH;
 
@@ -209,7 +211,7 @@ impl RingBuffer for OneToOneRingBuffer {
         return true;
     }
 
-    fn read<T: MessageHandler>(&self, handler: &T,  message_count_limit: u32) -> u32 {
+    fn read<'a, F>(&'a self, mut handler: F, message_count_limit: u32) -> u32 where F: FnMut(i32, &'a AtomicBuffer, Index, Index) {
         let head: i64 = self.buffer.get_i64(self.head_position_index);
         let head_index = (head & (self.capacity - 1) as i64) as Index;
         let contiguous_block_length: Index = self.capacity - head_index;
@@ -245,7 +247,7 @@ impl RingBuffer for OneToOneRingBuffer {
             }
 
             messages_read += 1;
-            handler.on_message(msg_type_id,
+            handler(msg_type_id,
                                &self.buffer,
                                RecordDescriptor::encoded_msg_offset(record_index),
                                record_length - RecordDescriptor::HEADER_LENGTH);

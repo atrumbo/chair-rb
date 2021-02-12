@@ -25,8 +25,14 @@ pub fn cpu_pause(){
 }
 
 #[inline]
-pub unsafe fn get_int64_volatile(source: *const i64) -> i64 {
+pub unsafe fn get_i64_volatile(source: *const i64) -> i64 {
     let sequence : i64 = std::ptr::read_volatile(source);
     acquire();
     sequence
+}
+
+#[inline]
+pub unsafe fn put_i64_ordered(dest: *mut i64, value: i64) {
+    acquire();
+    std::ptr::write(dest, value);
 }
