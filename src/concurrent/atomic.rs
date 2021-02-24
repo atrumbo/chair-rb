@@ -24,15 +24,16 @@ pub fn release(){
 pub fn cpu_pause(){
 }
 
+
 #[inline]
-pub unsafe fn get_i64_volatile(source: *const i64) -> i64 {
-    let sequence : i64 = std::ptr::read_volatile(source);
+pub unsafe fn get_volatile<T>(source: *const T) -> T {
+    let sequence: T = std::ptr::read_volatile(source);
     acquire();
     sequence
 }
 
 #[inline]
-pub unsafe fn put_i64_ordered(dest: *mut i64, value: i64) {
+pub unsafe fn put_ordered<T>(dest: *mut T, value: T) {
     acquire();
     std::ptr::write(dest, value);
 }

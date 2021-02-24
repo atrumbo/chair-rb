@@ -4,18 +4,18 @@ use crate::util::bit_util::CACHE_LINE_LENGTH;
 use crate::util::Index;
 use std::mem::size_of;
 
-struct RingBufferDescriptor;
+pub struct RingBufferDescriptor;
 
 impl RingBufferDescriptor {
 
-    const TAIL_POSITION_OFFSET: Index = CACHE_LINE_LENGTH * 2;
-    const HEAD_CACHE_POSITION_OFFSET: Index = CACHE_LINE_LENGTH * 4;
-    const HEAD_POSITION_OFFSET: Index = CACHE_LINE_LENGTH * 6;
-    const CORRELATION_COUNTER_OFFSET: Index = CACHE_LINE_LENGTH * 8;
-    const CONSUMER_HEARTBEAT_OFFSET: Index = CACHE_LINE_LENGTH * 10;
+    pub const TAIL_POSITION_OFFSET: Index = CACHE_LINE_LENGTH * 2;
+    pub const HEAD_CACHE_POSITION_OFFSET: Index = CACHE_LINE_LENGTH * 4;
+    pub const HEAD_POSITION_OFFSET: Index = CACHE_LINE_LENGTH * 6;
+    pub const CORRELATION_COUNTER_OFFSET: Index = CACHE_LINE_LENGTH * 8;
+    pub const CONSUMER_HEARTBEAT_OFFSET: Index = CACHE_LINE_LENGTH * 10;
 
     /* Total length of the trailer in bytes. */
-    const TRAILER_LENGTH: Index = CACHE_LINE_LENGTH * 12;
+    pub const TRAILER_LENGTH: Index = CACHE_LINE_LENGTH * 12;
 
     #[inline]
     fn check_capacity(capacity: Index){
@@ -42,12 +42,12 @@ impl RingBufferDescriptor {
 *  +---------------------------------------------------------------+
 * </pre>
 */
-struct RecordDescriptor;
+pub struct RecordDescriptor;
 
 impl RecordDescriptor {
 
     const HEADER_LENGTH: Index = size_of::<Index>() as Index * 2;
-    const ALIGNMENT: Index = RecordDescriptor::HEADER_LENGTH;
+    pub(crate) const ALIGNMENT: Index = RecordDescriptor::HEADER_LENGTH;
     const PADDING_MSG_TYPE_ID: Index = -1;
 
     #[inline]
@@ -119,6 +119,10 @@ pub struct OneToOneRingBuffer {
     consumer_heartbeat_index: Index,
 }
 
+unsafe impl Send for OneToOneRingBuffer {}
+unsafe impl Sync for OneToOneRingBuffer {}
+
+
 impl OneToOneRingBuffer {
     #[inline]
     fn check_msg_length(&self, length: Index) {
@@ -161,7 +165,7 @@ impl RingBuffer for OneToOneRingBuffer {
         let mask: i64 = self.capacity as i64 - 1;
 
         let mut head = self.buffer.get_i64(self.head_cache_position_index);
-        let mut tail: i64 = self.buffer.get_i64(self.tail_position_index);
+        let tail: i64 = self.buffer.get_i64(self.tail_position_index);
         let available_capacity: Index = self.capacity - (tail - head) as Index;
 
         if required_capacity > available_capacity {

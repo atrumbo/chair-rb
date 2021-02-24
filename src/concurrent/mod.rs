@@ -68,7 +68,7 @@ impl IdleStrategy for BusySpinIdleStrategy {
 }
 
 
-
+#[derive(Debug, Clone, Copy)]
 pub struct AtomicBuffer {
     buffer : *mut u8,
     length : u32
@@ -87,7 +87,7 @@ impl AtomicBuffer {
     pub fn get_i64(&self, index: Index) -> i64 {
         self.bounds_check(index, size_of::<i64>());
         unsafe {
-            *self.buffer.offset(index as isize) as i64
+            *(self.buffer.offset(index as isize) as *const i64)
         }
     }
 
@@ -101,14 +101,14 @@ impl AtomicBuffer {
     pub fn put_i64_ordered(&self, index: Index, value: i64) {
         self.bounds_check(index, size_of::<i64>());
         unsafe {
-            atomic::put_i64_ordered(self.buffer.offset(index as isize) as *mut i64, value);
+            atomic::put_ordered(self.buffer.offset(index as isize) as *mut i64, value);
         }
     }
 
     pub fn get_int64_volatile(&self, index: Index) -> i64 {
         self.bounds_check(index, size_of::<i64>());
         unsafe {
-            atomic::get_i64_volatile(self.buffer.offset(index as isize) as *const i64)
+            atomic::get_volatile(self.buffer.offset(index as isize) as *const i64)
         }
     }
 
