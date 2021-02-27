@@ -34,6 +34,6 @@ pub unsafe fn get_volatile<T>(source: *const T) -> T {
 
 #[inline]
 pub unsafe fn put_ordered<T>(dest: *mut T, value: T) {
-    acquire();
+    release();
     std::ptr::write(dest, value);
 }
