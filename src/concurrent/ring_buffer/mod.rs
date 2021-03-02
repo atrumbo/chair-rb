@@ -53,44 +53,46 @@ pub struct RecordDescriptor;
 
 impl RecordDescriptor {
 
-    const HEADER_LENGTH: Index = size_of::<Index>() as Index * 2;
-    pub(crate) const ALIGNMENT: Index = RecordDescriptor::HEADER_LENGTH;
-    const PADDING_MSG_TYPE_ID: Index = -1;
+    pub const HEADER_LENGTH: Index = size_of::<Index>() as Index * 2;
+    pub const ALIGNMENT: Index = RecordDescriptor::HEADER_LENGTH;
+    pub const PADDING_MSG_TYPE_ID: Index = -1;
 
     #[inline]
-    fn length_offset(record_offset: Index) -> Index
+    pub fn length_offset(record_offset: Index) -> Index
     {
         record_offset
     }
 
     #[inline]
-    fn type_offset(record_offset: Index) -> Index {
+    pub fn type_offset(record_offset: Index) -> Index {
         record_offset + size_of::<Index>() as Index
     }
 
     #[inline]
-    fn encoded_msg_offset(record_offset: Index) -> Index
+    pub fn encoded_msg_offset(record_offset: Index) -> Index
     {
         record_offset + RecordDescriptor::HEADER_LENGTH
     }
 
     #[inline]
-    fn make_header(length: i32, msg_type_id: i32) -> i64 {
+    pub fn make_header(length: i32, msg_type_id: i32) -> i64 {
          (((msg_type_id as i64) & 0xFFFFFFFF) << 32) | (length as i64 & 0xFFFFFFFF)
     }
 
     #[inline]
-    fn record_length(header: i64) -> i32
+    pub fn record_length(header: i64) -> i32
     {
         header as i32
     }
 
-    #[inline] fn message_type_id(header: i64) -> i32
+    #[inline]
+    pub fn message_type_id(header: i64) -> i32
     {
         (header >> 32) as i32
     }
 
-    #[inline] fn check_msg_type_id(msg_type_id: i32)
+    #[inline]
+    pub fn check_msg_type_id(msg_type_id: i32)
     {
         if msg_type_id < 1 {
             panic!("Message type id must be greater than zero, msgTypeId={}", msg_type_id);
@@ -107,6 +109,8 @@ pub trait RingBuffer {
 
     fn read<'a, F>(&'a self, handler: F, message_count_limit: u32) -> u32
     where F: FnMut(i32, &'a AtomicBuffer, Index, Index);
+
+    fn max_msg_length(&self) -> Index;
 }
 
 pub trait MessageHandler {

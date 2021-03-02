@@ -15,10 +15,12 @@ unsafe impl Send for ManyToOneRingBuffer {}
 unsafe impl Sync for ManyToOneRingBuffer {}
 
 impl ManyToOneRingBuffer {
+    const INSUFFICIENT_CAPACITY: Index = -2;
+
     #[inline]
     fn check_msg_length(&self, length: Index) {
         if length > self.max_msg_length {
-            panic!("encoded message exceeds maxMsgLength of {}  length={}", self.max_msg_length, length)
+            panic!("encoded message exceeds maxMsgLength of {} length={}", self.max_msg_length, length)
         }
     }
 
@@ -39,4 +41,92 @@ impl ManyToOneRingBuffer {
             consumer_heartbeat_index: capacity + RingBufferDescriptor::CONSUMER_HEARTBEAT_OFFSET,
         }
     }
+
+    fn claim_capacity(&self, required_capacity: Index) -> Index{
+        unimplemented!()
+    }
 }
+
+impl RingBuffer for ManyToOneRingBuffer {
+    fn capacity(&self) -> i32 {
+        self.capacity
+    }
+
+    fn write(&self, msg_type_id: i32, src_buffer: &AtomicBuffer, src_index: i32, length: i32) -> bool {
+
+        let mut is_successful = false;
+
+        RecordDescriptor::check_msg_type_id(msg_type_id);
+        self.check_msg_length(length);
+
+        let record_length: Index = length + RecordDescriptor::HEADER_LENGTH;
+        let required_capacity: Index = bit_util::align(record_length, RecordDescriptor::ALIGNMENT);
+        let record_index: Index = self.claim_capacity(required_capacity);
+
+        if ManyToOneRingBuffer::INSUFFICIENT_CAPACITY != record_index
+        {
+            self.buffer.put_ordered(record_index, RecordDescriptor::make_header(-record_length, msg_type_id));
+            self.buffer.put_bytes(RecordDescriptor::encoded_msg_offset(record_index), src_buffer, src_index, length);
+            self.buffer.put_ordered(RecordDescriptor::length_offset(record_index), record_length);
+
+            is_successful = true;
+        }
+        is_successful
+    }
+
+    fn read<'a, F>(&'a self, mut handler: F, message_count_limit: u32) -> u32 where F: FnMut(i32, &'a AtomicBuffer, Index, Index) {
+        let head: i64 = self.buffer.get_i64(self.head_position_index);
+        let head_index = (head & (self.capacity - 1) as i64) as Index;
+        let contiguous_block_length: Index = self.capacity - head_index;
+        let mut messages_read = 0;
+        let mut bytes_read = 0;
+
+        // auto cleanup = util::InvokeOnScopeExit {
+        // [&]()
+        // {
+        // if (bytes_read != 0)
+        // {
+        // m_buffer.setMemory(head_index, static_cast<std::size_t>(bytes_read), 0);
+        // m_buffer.putInt64Ordered(m_headPositionIndex, head + bytes_read);
+        // }
+        // }};
+        //
+        while (bytes_read < contiguous_block_length) && (messages_read < message_count_limit) {
+            let record_index: Index = head_index + bytes_read;
+            let header: i64 = self.buffer.get_int64_volatile(record_index);
+            let record_length: Index = RecordDescriptor::record_length(header);
+
+            if record_length <= 0
+            {
+                break;
+            }
+
+            bytes_read += bit_util::align(record_length, RecordDescriptor::ALIGNMENT);
+
+            let msg_type_id: Index = RecordDescriptor::message_type_id(header);
+            if RecordDescriptor::PADDING_MSG_TYPE_ID == msg_type_id
+            {
+                continue;
+            }
+
+            messages_read += 1;
+            handler(msg_type_id,
+                    &self.buffer,
+                    RecordDescriptor::encoded_msg_offset(record_index),
+                    record_length - RecordDescriptor::HEADER_LENGTH);
+        }
+        // TODO: Moved here for now need error handling from on message or a scope guard
+        if bytes_read != 0
+        {
+            self.buffer.set_memory(head_index, bytes_read, 0);
+            self.buffer.put_i64_ordered(self.head_position_index, head + bytes_read as i64);
+        }
+        messages_read
+    }
+
+    fn max_msg_length(&self) -> i32 {
+        self.max_msg_length
+    }
+}
+
+

@@ -2,7 +2,7 @@ use crate::util::Index;
 use std::mem::size_of;
 
 pub mod ring_buffer;
-mod atomic;
+pub mod atomic;
 
 pub trait IdleStrategy{
     fn idle_work(&self, work_count: i8);
@@ -84,6 +84,13 @@ impl AtomicBuffer {
         AtomicBuffer{buffer, length}
     }
 
+    pub fn get<T: Copy>(&self, index: Index) -> T {
+        self.bounds_check(index, size_of::<T>());
+        unsafe {
+            *(self.buffer.offset(index as isize) as *const T)
+        }
+    }
+
     pub fn get_i64(&self, index: Index) -> i64 {
         self.bounds_check(index, size_of::<i64>());
         unsafe {
@@ -95,6 +102,21 @@ impl AtomicBuffer {
         self.bounds_check(index, size_of::<i64>());
         unsafe {
             std::ptr::write(self.buffer.offset(index as isize) as *mut i64, value);
+        }
+    }
+
+    pub fn put<T>(&self, index: Index, value: T) {
+        self.bounds_check(index, size_of::<T>());
+        unsafe {
+            std::ptr::write(self.buffer.offset(index as isize) as *mut T, value);
+        }
+    }
+
+
+    pub fn put_ordered<T>(&self, index: Index, value: T){
+        self.bounds_check(index, size_of::<T>());
+        unsafe {
+            atomic::put_ordered(self.buffer.offset(index as isize) as *mut T, value);
         }
     }
 

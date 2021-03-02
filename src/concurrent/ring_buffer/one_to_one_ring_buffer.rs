@@ -18,7 +18,7 @@ impl OneToOneRingBuffer {
     #[inline]
     fn check_msg_length(&self, length: Index) {
         if length > self.max_msg_length {
-            panic!("encoded message exceeds maxMsgLength of {}  length={}", self.max_msg_length, length)
+            panic!("encoded message exceeds maxMsgLength of {} length={}", self.max_msg_length, length)
         }
     }
 
@@ -38,7 +38,6 @@ impl OneToOneRingBuffer {
             correlation_id_counter_index: capacity + RingBufferDescriptor::CORRELATION_COUNTER_OFFSET,
             consumer_heartbeat_index: capacity + RingBufferDescriptor::CONSUMER_HEARTBEAT_OFFSET,
         }
-
     }
 }
 
@@ -119,7 +118,7 @@ impl RingBuffer for OneToOneRingBuffer {
         // if (bytes_read != 0)
         // {
         // m_buffer.setMemory(head_index, static_cast<std::size_t>(bytes_read), 0);
-        // m_buffer.putInt64Ordered(m_headPositionIndex, head + bytes_read);
+        // m_buffer.put::<i64>Ordered(m_headPositionIndex, head + bytes_read);
         // }
         // }};
         //
@@ -155,6 +154,10 @@ impl RingBuffer for OneToOneRingBuffer {
         }
         messages_read
     }
+
+    fn max_msg_length(&self) -> i32 {
+        self.max_msg_length
+    }
 }
 
 
@@ -162,139 +165,352 @@ impl RingBuffer for OneToOneRingBuffer {
 mod tests {
     use super::*;
     use crate::mem::Align16;
-    use std::mem::size_of;
-    use std::sync::Arc;
-    use std::thread;
-    use std::time::Duration;
+    use std::panic;
+    use std::panic::AssertUnwindSafe;
 
     const CAPACITY: i32 = 1024;
     const BUFFER_SZ: usize = (CAPACITY + RingBufferDescriptor::TRAILER_LENGTH) as usize;
-    const ODD_BUFFER_SZ: i32 = (CAPACITY - 1) + RingBufferDescriptor::TRAILER_LENGTH;
+    const ODD_BUFFER_SZ: usize = (CAPACITY - 1) as usize + RingBufferDescriptor::TRAILER_LENGTH as usize;
 
     const MSG_TYPE_ID: i32 = 101;
     const HEAD_COUNTER_INDEX: Index = 1024 + RingBufferDescriptor::HEAD_POSITION_OFFSET;
     const TAIL_COUNTER_INDEX: Index = 1024 + RingBufferDescriptor::TAIL_POSITION_OFFSET;
 
-    #[test]
-    fn one_to_one_rb_test() {
-        // let context = OneToOneRingBufferTestContext::new();
-        // assert_eq!(mem::align_of_val_raw(&context), 16);
 
-        let mut buf: [u8; 1024] = [0; 1024];
-        let buffer = AtomicBuffer::wrap(buf.as_mut_ptr(), buf.len() as u32);
-        let ring_buffer = OneToOneRingBuffer::new(buffer);
-
-        let mut src_buf: [u8; 128] = [0; 128];
-        let src_buffer = AtomicBuffer::wrap(src_buf.as_mut_ptr(), src_buf.len() as u32);
-        src_buffer.put_i64(0, 42);
-
-        assert!(ring_buffer.write(1, &src_buffer, 0, size_of::<i64>() as i32));
-        assert!(ring_buffer.write(1, &src_buffer, 0, size_of::<i64>() as i32));
-
-        let mut times_called = 0;
-
-        let messages_read = ring_buffer.read(|_,_,_,_| times_called+=1, 10);
-
-        assert_eq!(messages_read, times_called);
-        assert_eq!(2, times_called);
-
+    struct OneToOneRingBufferTest {
+        buffer: Align16<Vec<u8>>,
+        src_buffer: Align16<Vec<u8>>,
+        ab: AtomicBuffer,
+        src_ab: AtomicBuffer,
+        ring_buffer: OneToOneRingBuffer,
     }
 
+    impl OneToOneRingBufferTest {
+        fn new(buffer_size: usize) -> OneToOneRingBufferTest {
+
+            let mut buffer = Align16::new(vec![0 as u8; buffer_size]);
+            let mut src_buffer = Align16::new(vec![0 as u8; buffer_size]);
+            let ab = AtomicBuffer::wrap(buffer.as_mut_ptr(), buffer.len() as u32);
+            let src_ab= AtomicBuffer::wrap(src_buffer.as_mut_ptr(), src_buffer.len() as u32);
+            let ring_buffer=  OneToOneRingBuffer::new(ab);
+
+            OneToOneRingBufferTest {
+                buffer,
+                src_buffer,
+                ab,
+                src_ab,
+                ring_buffer
+            }
+        }
+    }
+
+    impl Default for OneToOneRingBufferTest {
+        fn default() -> Self {
+            Self::new(BUFFER_SZ)
+        }
+    }
+
+    #[test]
+    fn should_calculate_capacity_for_buffer()
+    {
+        let context = OneToOneRingBufferTest::default();
+        assert_eq!(context.ab.capacity(), BUFFER_SZ as i32);
+        assert_eq!(context.ring_buffer.capacity(), BUFFER_SZ as i32 - RingBufferDescriptor::TRAILER_LENGTH);
+    }
+
+    #[test]
+    #[should_panic(expected = "Capacity must be a positive power of 2 + TRAILER_LENGTH: capacity=1023")]
+    fn should_panic_for_capacity_not_power_of_two()
+    {
+        let mut test_buffer: Align16<[u8; ODD_BUFFER_SZ]> = Align16::new([0; ODD_BUFFER_SZ]);
+        let ab = AtomicBuffer::wrap(test_buffer.as_mut_ptr(), test_buffer.len() as u32);
+        let _ring_buffer = OneToOneRingBuffer::new(ab);
+    }
+
+    #[test]
+    #[should_panic(expected = "encoded message exceeds maxMsgLength of 128 length=129")]
+    fn should_panic_when_max_message_size_exceeded()
+    {
+        let context = OneToOneRingBufferTest::default();
+        context.ring_buffer.write(MSG_TYPE_ID, &context.src_ab, 0, context.ring_buffer.max_msg_length() + 1);
+    }
+
+    #[test]
+    fn should_write_to_empty_buffer()
+    {
+        let context = OneToOneRingBufferTest::default();
+        let tail = 0;
+        let tail_index = 0;
+        let length = 8;
+        let record_length = length + RecordDescriptor::HEADER_LENGTH;
+        let src_index = 0;
+        let aligned_record_length = bit_util::align(record_length, RecordDescriptor::ALIGNMENT);
+
+        assert!(context.ring_buffer.write(MSG_TYPE_ID, &context.src_ab, src_index, length));
+
+        assert_eq!(context.ab.get::<i32>(RecordDescriptor::length_offset(tail_index)), record_length);
+        assert_eq!(context.ab.get::<i32>(RecordDescriptor::type_offset(tail_index)), MSG_TYPE_ID);
+        assert_eq!(context.ab.get::<i32>(TAIL_COUNTER_INDEX), tail + aligned_record_length);
+    }
 
     #[test]
     fn should_reject_write_when_insufficient_space() {
+        let context = OneToOneRingBufferTest::default();
+        let length = 100;
+        let head= 0;
+        let tail = head + (CAPACITY - bit_util::align(length - RecordDescriptor::ALIGNMENT, RecordDescriptor::ALIGNMENT)) as i64;
+        let src_index = 0;
 
-        let length: Index = 100;
-        let head: i64 = 0;
-        let tail: i64 = head + (CAPACITY - bit_util::align(length - RecordDescriptor::ALIGNMENT, RecordDescriptor::ALIGNMENT)) as i64;
-        let src_index: Index = 0;
+        context.ab.put_i64(HEAD_COUNTER_INDEX, head);
+        assert_eq!(head, context.ab.get_i64(HEAD_COUNTER_INDEX));
 
-        let mut buffer: Align16<[u8; BUFFER_SZ]> = Align16::new([0; BUFFER_SZ]);
+        context.ab.put_i64(TAIL_COUNTER_INDEX, tail);
+        assert_eq!(tail, context.ab.get_i64(TAIL_COUNTER_INDEX));
+        assert!(!context.ring_buffer.write(MSG_TYPE_ID, &context.src_ab, src_index, length));
 
-        assert_eq!(buffer.as_ptr() as usize % 16,  0);
-        assert_eq!(buffer.aligned.as_ptr() as usize % 16,  0);
-
-        let mut src_buffer: Align16<[u8; BUFFER_SZ]> = Align16::new([0;BUFFER_SZ]);
-
-        assert_eq!(src_buffer.as_ptr() as usize % 16,  0);
-
-        let ab = AtomicBuffer::wrap(buffer.as_mut_ptr(), buffer.len() as u32);
-        let src_ab = AtomicBuffer::wrap(src_buffer.as_mut_ptr(), src_buffer.len() as u32);
-
-
-        ab.put_i64(HEAD_COUNTER_INDEX, head);
-        assert_eq!(head, ab.get_i64(HEAD_COUNTER_INDEX));
-
-        ab.put_i64(TAIL_COUNTER_INDEX, tail);
-        assert_eq!(tail, ab.get_i64(TAIL_COUNTER_INDEX));
-
-        let ring_buffer= OneToOneRingBuffer::new(ab);
-        assert!(!ring_buffer.write(MSG_TYPE_ID, &src_ab, src_index, length));
-
-        assert_eq!(ab.get_i64(TAIL_COUNTER_INDEX), tail);
+        assert_eq!(context.ab.get_i64(TAIL_COUNTER_INDEX), tail);
     }
 
     #[test]
-    fn one_to_one_rb_test_threaded() {
-        let mut buf: Align16<[u8; 17152]> = Align16::new([0; 17152]);
-        let buffer = AtomicBuffer::wrap(buf.as_mut_ptr(), buf.len() as u32);
-        // let ring_buffer = OneToOneRingBuffer::new(buffer);
-        let ring_buffer = Arc::new(OneToOneRingBuffer::new(buffer));
-        let rb = Arc::clone(&ring_buffer);
+    fn should_reject_write_when_buffer_full()
+    {
+        let context = OneToOneRingBufferTest::default();
+        let length = 8;
+        let head: i64 = 0;
+        let tail: i64 = head + CAPACITY as i64;
+        let src_index = 0;
 
-        let handle = thread::spawn(move || {
-            let mut src_buf: [u8; 128] = [0; 128];
-            let src_buffer = AtomicBuffer::wrap(src_buf.as_mut_ptr(), src_buf.len() as u32);
+        context.ab.put_i64(HEAD_COUNTER_INDEX, head);
+        context.ab.put_i64(TAIL_COUNTER_INDEX, tail);
 
-            let mut sent = 0;
-            for i in 0..10_000_000_i32 {
-                // println!("hi number {} from the spawned thread!", i);
-                src_buffer.put_i64(0, i as i64);
-                loop {
-                    if rb.write(1, &src_buffer, 0, size_of::<i64>() as i32) {
-                        sent += 1;
-                        break;
-                    }
-                }
-            }
-            src_buffer.put_i64(0, 42);
-            println!("ProducerThread: Sending poison after publishing {} messages to ring buffer", sent);
-            loop{
-                if rb.write(42, &src_buffer, 0, size_of::<i64>() as i32) {
-                    break;
-                }
-            }
+        assert!(!context.ring_buffer.write(MSG_TYPE_ID, &context.src_ab, src_index, length));
+        assert_eq!(context.ab.get::<i64>(TAIL_COUNTER_INDEX), tail);
+    }
 
-        });
+    #[test]
+    fn should_insert_padding_record_plus_message_on_buffer_wrap()
+    {
+        let context = OneToOneRingBufferTest::default();
+        let length = 100;
+        let record_length = length + RecordDescriptor::HEADER_LENGTH;
+        let aligned_record_length = bit_util::align(record_length, RecordDescriptor::ALIGNMENT);
+        let tail = CAPACITY - RecordDescriptor::ALIGNMENT;
+        let head = tail - (RecordDescriptor::ALIGNMENT * 4);
+        let src_index = 0;
+
+        context.ab.put_i64(HEAD_COUNTER_INDEX, head as i64);
+        context.ab.put_i64(TAIL_COUNTER_INDEX, tail as i64);
+
+        assert!(context.ring_buffer.write(MSG_TYPE_ID, &context.src_ab, src_index, length));
+
+        assert_eq!(context.ab.get::<i32>(RecordDescriptor::type_offset(tail)), RecordDescriptor::PADDING_MSG_TYPE_ID);
+        assert_eq!(context.ab.get::<i32>(RecordDescriptor::length_offset(tail)), RecordDescriptor::ALIGNMENT);
+
+        assert_eq!(context.ab.get::<i32>(RecordDescriptor::length_offset(0)), record_length);
+        assert_eq!(context.ab.get::<i32>(RecordDescriptor::type_offset(0)), MSG_TYPE_ID);
+        assert_eq!(context.ab.get::<i64>(TAIL_COUNTER_INDEX) as i32, tail + aligned_record_length + RecordDescriptor::ALIGNMENT);
+    }
+
+    #[test]
+    fn should_insert_padding_record_plus_message_on_buffer_wrap_with_head_equal_to_tail()
+    {
+        let context = OneToOneRingBufferTest::default();
+        let length = 100;
+        let record_length = length + RecordDescriptor::HEADER_LENGTH;
+        let aligned_record_length = bit_util::align(record_length, RecordDescriptor::ALIGNMENT);
+        let tail = CAPACITY - RecordDescriptor::ALIGNMENT;
+        let head = tail;
+        let src_index = 0;
+
+        context.ab.put::<i64>(HEAD_COUNTER_INDEX, head as i64);
+        context.ab.put::<i64>(TAIL_COUNTER_INDEX, tail as i64);
+
+        assert!(context.ring_buffer.write(MSG_TYPE_ID, &context.src_ab, src_index, length));
+
+        assert_eq!(context.ab.get::<i32>(RecordDescriptor::type_offset(tail)), RecordDescriptor::PADDING_MSG_TYPE_ID);
+        assert_eq!(context.ab.get::<i32>(RecordDescriptor::length_offset(tail)), RecordDescriptor::ALIGNMENT);
+
+        assert_eq!(context.ab.get::<i32>(RecordDescriptor::length_offset(0)), record_length);
+        assert_eq!(context.ab.get::<i32>(RecordDescriptor::type_offset(0)), MSG_TYPE_ID);
+        assert_eq!(context.ab.get::<i32>(TAIL_COUNTER_INDEX), tail + aligned_record_length + RecordDescriptor::ALIGNMENT);
+    }
+
+
+    #[test]
+    fn should_read_nothing_from_empty_buffer()
+    {
+        let context = OneToOneRingBufferTest::default();
+        let tail = 0;
+        let head = 0;
+
+        context.ab.put::<i64>(HEAD_COUNTER_INDEX, head);
+        context.ab.put::<i64>(TAIL_COUNTER_INDEX, tail);
+
+        let mut times_called = 0;
+        let messages_read = context.ring_buffer.read(|_, _, _, _| times_called+=1, u32::max_value());
+
+        assert_eq!(messages_read, 0);
+        assert_eq!(times_called, 0);
+    }
+
+    #[test]
+    fn should_read_single_message()
+    {
+        let context = OneToOneRingBufferTest::default();
+        let length = 8;
+        let head = 0;
+        let record_length = length + RecordDescriptor::HEADER_LENGTH;
+        let aligned_record_length = bit_util::align(record_length, RecordDescriptor::ALIGNMENT);
+        let tail = aligned_record_length;
+
+        context.ab.put::<i64>(HEAD_COUNTER_INDEX, head);
+        context.ab.put::<i64>(TAIL_COUNTER_INDEX, tail as i64);
+        
+        context.ab.put::<i32>(RecordDescriptor::type_offset(0), MSG_TYPE_ID);
+        context.ab.put::<i32>(RecordDescriptor::length_offset(0), record_length);
+        
+        let mut times_called = 0;
+        let messages_read = context.ring_buffer.read(|_, _, _, _| times_called+=1, u32::max_value());
+        assert_eq!(messages_read, 1);
+        assert_eq!(times_called, 1);
+        assert_eq!(context.ab.get::<i64>(HEAD_COUNTER_INDEX), head + aligned_record_length as i64);
+        
+        for  i in (0..RecordDescriptor::ALIGNMENT).step_by(4)
+        {
+            assert_eq!(context.ab.get::<i32>(i), 0, "buffer has not been zeroed between indexes {} - {}", i, i + 3);
+        }
+    }
+
+    #[test]
+    fn should_not_read_single_message_part_way_through_writing()
+    {
+        let context = OneToOneRingBufferTest::default();
+        let length = 8;
+        let head = 0;
+        let record_length = length + RecordDescriptor::HEADER_LENGTH;
+        let aligned_record_length = bit_util::align(record_length, RecordDescriptor::ALIGNMENT);
+        let end_tail = aligned_record_length;
+
+        context.ab.put::<i64>(TAIL_COUNTER_INDEX, end_tail as i64);
+        context.ab.put::<i32>(RecordDescriptor::type_offset(0), MSG_TYPE_ID);
+        context.ab.put::<i32>(RecordDescriptor::length_offset(0), -record_length);
+
+        let mut times_called = 0;
+        let messages_read = context.ring_buffer.read(|_, _, _, _| times_called+=1, u32::max_value());
+
+        assert_eq!(messages_read, 0);
+        assert_eq!(times_called, 0);
+        assert_eq!(context.ab.get::<i64>(HEAD_COUNTER_INDEX), head);
+    }
+
+    #[test]
+    fn should_read_two_messages()
+    {
+        let context = OneToOneRingBufferTest::default();
+        let length = 8;
+        let head = 0;
+        let record_length = length + RecordDescriptor::HEADER_LENGTH;
+        let aligned_record_length = bit_util::align(record_length, RecordDescriptor::ALIGNMENT);
+        let tail = aligned_record_length * 2;
+
+        context.ab.put::<i64>(HEAD_COUNTER_INDEX, head);
+        context.ab.put::<i64>(TAIL_COUNTER_INDEX, tail as i64);
+
+        context.ab.put::<i32>(RecordDescriptor::type_offset(0), MSG_TYPE_ID);
+        context.ab.put::<i32>(RecordDescriptor::length_offset(0), record_length);
+
+        context.ab.put::<i32>(RecordDescriptor::type_offset(0 + aligned_record_length), MSG_TYPE_ID);
+        context.ab.put::<i32>(RecordDescriptor::length_offset(0 + aligned_record_length), record_length);
+
+        let mut times_called = 0;
+        let messages_read = context.ring_buffer.read(|_, _, _, _| times_called+=1, u32::max_value());
+
+        assert_eq!(messages_read, 2);
+        assert_eq!(times_called, 2);
+        assert_eq!(context.ab.get::<i64>(HEAD_COUNTER_INDEX), head + (aligned_record_length + aligned_record_length) as i64);
+
+        for i in (0..RecordDescriptor::ALIGNMENT * 2).step_by(4)
+        {
+            assert_eq!(context.ab.get::<i32>(i), 0, "buffer has not been zeroed between indexes {} - {}", i, i + 3);
+        }
+    }
+
+    #[test]
+    fn should_limit_read_of_messages()
+    {
+        let context = OneToOneRingBufferTest::default();
+        let length = 8;
+        let head = 0;
+        let record_length = length + RecordDescriptor::HEADER_LENGTH;
+        let aligned_record_length = bit_util::align(record_length, RecordDescriptor::ALIGNMENT);
+        let tail = aligned_record_length * 2;
+
+        context.ab.put::<i64>(HEAD_COUNTER_INDEX, head);
+        context.ab.put::<i64>(TAIL_COUNTER_INDEX, tail as i64);
+
+        context.ab.put::<i32>(RecordDescriptor::type_offset(0), MSG_TYPE_ID);
+        context.ab.put::<i32>(RecordDescriptor::length_offset(0), record_length);
+
+        context.ab.put::<i32>(RecordDescriptor::type_offset(0 + aligned_record_length), MSG_TYPE_ID);
+        context.ab.put::<i32>(RecordDescriptor::length_offset(0 + aligned_record_length), record_length);
+
+        let mut times_called = 0;
+        let messages_read = context.ring_buffer.read(|_, _, _, _| times_called+=1, 1);
+
+        assert_eq!(messages_read, 1);
+        assert_eq!(times_called, 1);
+        assert_eq!(context.ab.get::<i64>(HEAD_COUNTER_INDEX), head + aligned_record_length as i64);
+
+        for i in (0..RecordDescriptor::ALIGNMENT).step_by(4)
+        {
+            assert_eq!(context.ab.get::<i32>(i), 0, "buffer has not been zeroed between indexes {} - {}", i, i + 3);
+        }
+        assert_eq!(context.ab.get::<i32>(RecordDescriptor::length_offset(aligned_record_length)), record_length);
+    }
+
+    #[test]
+    fn should_cope_with_exception_from_handler()
+    {
+        let context = OneToOneRingBufferTest::default();
+        let length = 8;
+        let head = 0;
+        let record_length = length + RecordDescriptor::HEADER_LENGTH;
+        let aligned_record_length = bit_util::align(record_length, RecordDescriptor::ALIGNMENT);
+        let tail = aligned_record_length * 2;
+
+        context.ab.put::<i64>(HEAD_COUNTER_INDEX, head);
+        context.ab.put::<i64>(TAIL_COUNTER_INDEX, tail as i64);
+
+        context.ab.put::<i32>(RecordDescriptor::type_offset(0), MSG_TYPE_ID);
+        context.ab.put::<i32>(RecordDescriptor::length_offset(0), record_length);
+
+        context.ab.put::<i32>(RecordDescriptor::type_offset(0 + aligned_record_length), MSG_TYPE_ID);
+        context.ab.put::<i32>(RecordDescriptor::length_offset(0 + aligned_record_length), record_length);
+
 
         let mut times_called = 0;
 
-        let mut is_poison = false;
-        let mut prev_value = 0;
 
-        thread::sleep(Duration::from_millis(10));
 
-        loop {
-            if is_poison {
-                break;
-            }
-
-            ring_buffer.read(|msg_type_id, src_buffer, src_index , _src_length| {
-                times_called += 1;
-
-                let value = src_buffer.get_i64(src_index);
-                // assert_eq!(value, prev_value + 1);
-                prev_value = value;
-
-                if msg_type_id == 42 {
-                    is_poison = true;
-                    println!("ConsumerThread: Got Poison - msg_type_id: {} value: {}, received total {}", msg_type_id, value, times_called);
+        let result = panic::catch_unwind(AssertUnwindSafe(|| {
+            let messages_read = context.ring_buffer.read(|_, _, _, _| {
+                times_called+=1;
+                if 2 == times_called{
+                    panic!("expected exception")
                 }
+            }, u32::max_value());
+        }));
 
-            }, 10);
+
+        assert_eq!(times_called, 2);
+        assert!(result.is_err());
+        assert_eq!(context.ab.get::<i64>(HEAD_COUNTER_INDEX), head + (aligned_record_length + aligned_record_length) as i64);
+
+        for i in (0..RecordDescriptor::ALIGNMENT * 2).step_by(4)
+        {
+            assert_eq!(context.ab.get::<i32>(i), 0, "buffer has not been zeroed between indexes {} - {}", i, i + 3);
         }
-
-        handle.join().unwrap();
     }
+
 
 }
