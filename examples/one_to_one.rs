@@ -1,7 +1,7 @@
 use std::mem::size_of;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use rust_agrona_rb::mem::Align16;
 use rust_agrona_rb::concurrent::AtomicBuffer;
 use rust_agrona_rb::concurrent::ring_buffer::{OneToOneRingBuffer, RingBuffer};

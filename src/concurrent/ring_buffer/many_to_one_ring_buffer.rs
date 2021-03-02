@@ -1,4 +1,5 @@
 use super::*;
+use std::cell::Cell;
 
 pub struct ManyToOneRingBuffer {
     buffer: AtomicBuffer,
@@ -12,6 +13,7 @@ pub struct ManyToOneRingBuffer {
 }
 
 unsafe impl Send for ManyToOneRingBuffer {}
+
 unsafe impl Sync for ManyToOneRingBuffer {}
 
 impl ManyToOneRingBuffer {
@@ -24,8 +26,7 @@ impl ManyToOneRingBuffer {
         }
     }
 
-    pub fn new(buffer: AtomicBuffer) -> ManyToOneRingBuffer{
-
+    pub fn new(buffer: AtomicBuffer) -> ManyToOneRingBuffer {
         let capacity = buffer.capacity() - RingBufferDescriptor::TRAILER_LENGTH;
 
         RingBufferDescriptor::check_capacity(capacity);
@@ -42,7 +43,7 @@ impl ManyToOneRingBuffer {
         }
     }
 
-    fn claim_capacity(&self, required_capacity: Index) -> Index{
+    fn claim_capacity(&self, required_capacity: Index) -> Index {
         unimplemented!()
     }
 }
@@ -53,7 +54,6 @@ impl RingBuffer for ManyToOneRingBuffer {
     }
 
     fn write(&self, msg_type_id: i32, src_buffer: &AtomicBuffer, src_index: i32, length: i32) -> bool {
-
         let mut is_successful = false;
 
         RecordDescriptor::check_msg_type_id(msg_type_id);
@@ -79,20 +79,19 @@ impl RingBuffer for ManyToOneRingBuffer {
         let head_index = (head & (self.capacity - 1) as i64) as Index;
         let contiguous_block_length: Index = self.capacity - head_index;
         let mut messages_read = 0;
-        let mut bytes_read = 0;
+        let bytes_read = Cell::new(0);
 
-        // auto cleanup = util::InvokeOnScopeExit {
-        // [&]()
-        // {
-        // if (bytes_read != 0)
-        // {
-        // m_buffer.setMemory(head_index, static_cast<std::size_t>(bytes_read), 0);
-        // m_buffer.putInt64Ordered(m_headPositionIndex, head + bytes_read);
-        // }
-        // }};
-        //
-        while (bytes_read < contiguous_block_length) && (messages_read < message_count_limit) {
-            let record_index: Index = head_index + bytes_read;
+        defer! {
+            let read = bytes_read.get();
+            if read != 0
+            {
+                self.buffer.set_memory(head_index, read, 0);
+                self.buffer.put_i64_ordered(self.head_position_index, head + read as i64);
+            }
+        }
+
+        while (bytes_read.get() < contiguous_block_length) && (messages_read < message_count_limit) {
+            let record_index: Index = head_index + bytes_read.get();
             let header: i64 = self.buffer.get_int64_volatile(record_index);
             let record_length: Index = RecordDescriptor::record_length(header);
 
@@ -101,7 +100,7 @@ impl RingBuffer for ManyToOneRingBuffer {
                 break;
             }
 
-            bytes_read += bit_util::align(record_length, RecordDescriptor::ALIGNMENT);
+            bytes_read.set(bytes_read.get() + bit_util::align(record_length, RecordDescriptor::ALIGNMENT));
 
             let msg_type_id: Index = RecordDescriptor::message_type_id(header);
             if RecordDescriptor::PADDING_MSG_TYPE_ID == msg_type_id
@@ -115,12 +114,7 @@ impl RingBuffer for ManyToOneRingBuffer {
                     RecordDescriptor::encoded_msg_offset(record_index),
                     record_length - RecordDescriptor::HEADER_LENGTH);
         }
-        // TODO: Moved here for now need error handling from on message or a scope guard
-        if bytes_read != 0
-        {
-            self.buffer.set_memory(head_index, bytes_read, 0);
-            self.buffer.put_i64_ordered(self.head_position_index, head + bytes_read as i64);
-        }
+
         messages_read
     }
 
