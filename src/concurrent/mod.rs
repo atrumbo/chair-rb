@@ -98,6 +98,13 @@ impl AtomicBuffer {
         }
     }
 
+    pub fn get_and_add_i64(&self, index: Index, increment: i64) -> i64 {
+        self.bounds_check(index, size_of::<i64>());
+        unsafe {
+            atomic::get_and_add_i64(self.buffer.offset(index as isize) as *const i64, increment)
+        }
+    }
+
     pub fn put_i64(&self, index: Index, value: i64) {
         self.bounds_check(index, size_of::<i64>());
         unsafe {

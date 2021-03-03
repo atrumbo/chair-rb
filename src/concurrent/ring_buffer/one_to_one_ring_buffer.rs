@@ -9,7 +9,7 @@ pub struct OneToOneRingBuffer {
     head_cache_position_index: Index,
     tail_position_index: Index,
     correlation_id_counter_index: Index,
-    consumer_heartbeat_index: Index,
+    _consumer_heartbeat_index: Index,
 }
 
 unsafe impl Send for OneToOneRingBuffer {}
@@ -37,7 +37,7 @@ impl OneToOneRingBuffer {
             head_cache_position_index: capacity + RingBufferDescriptor::HEAD_CACHE_POSITION_OFFSET,
             head_position_index: capacity + RingBufferDescriptor::HEAD_POSITION_OFFSET,
             correlation_id_counter_index: capacity + RingBufferDescriptor::CORRELATION_COUNTER_OFFSET,
-            consumer_heartbeat_index: capacity + RingBufferDescriptor::CONSUMER_HEARTBEAT_OFFSET,
+            _consumer_heartbeat_index: capacity + RingBufferDescriptor::CONSUMER_HEARTBEAT_OFFSET,
         }
     }
 }
@@ -153,6 +153,10 @@ impl RingBuffer for OneToOneRingBuffer {
     fn max_msg_length(&self) -> i32 {
         self.max_msg_length
     }
+
+    fn next_correlation_id(&self) -> i64 {
+        return self.buffer.get_and_add_i64(self.correlation_id_counter_index, 1);
+    }
 }
 
 
@@ -160,8 +164,10 @@ impl RingBuffer for OneToOneRingBuffer {
 mod tests {
     use super::*;
     use crate::mem::Align16;
-    use std::panic;
+    use std::{panic, thread};
     use std::panic::AssertUnwindSafe;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     const CAPACITY: i32 = 1024;
     const BUFFER_SZ: usize = (CAPACITY + RingBufferDescriptor::TRAILER_LENGTH) as usize;
@@ -173,8 +179,8 @@ mod tests {
 
 
     struct OneToOneRingBufferTest {
-        buffer: Align16<Vec<u8>>,
-        src_buffer: Align16<Vec<u8>>,
+        // buffer: Align16<Vec<u8>>,
+        // src_buffer: Align16<Vec<u8>>,
         ab: AtomicBuffer,
         src_ab: AtomicBuffer,
         ring_buffer: OneToOneRingBuffer,
@@ -189,8 +195,8 @@ mod tests {
             let ring_buffer = OneToOneRingBuffer::new(ab);
 
             OneToOneRingBufferTest {
-                buffer,
-                src_buffer,
+                // buffer,
+                // src_buffer,
                 ab,
                 src_ab,
                 ring_buffer,
@@ -486,7 +492,7 @@ mod tests {
 
 
         let result = panic::catch_unwind(AssertUnwindSafe(|| {
-            let messages_read = context.ring_buffer.read(|_, _, _, _| {
+            let _messages_read = context.ring_buffer.read(|_, _, _, _| {
                 times_called += 1;
                 if 2 == times_called {
                     panic!("expected exception")
@@ -504,4 +510,96 @@ mod tests {
             assert_eq!(context.ab.get::<i32>(i), 0, "buffer has not been zeroed between indexes {} - {}", i, i + 3);
         }
     }
+
+    const NUM_MESSAGES: i32 = 10 * 1000 * 1000;
+    const NUM_IDS_PER_THREAD: i32 = 10 * 1000 * 1000;
+
+    #[test]
+    fn should_provide_correlation_ids()
+    {
+        let mut spsc_buffer = Align16::new([0 as u8; BUFFER_SZ]);
+        let spsc_ab = AtomicBuffer::wrap(spsc_buffer.as_mut_ptr(), spsc_buffer.len() as u32);
+        let ring_buffer = Arc::new(OneToOneRingBuffer::new(spsc_ab));
+
+        let count_down = Arc::new(AtomicUsize::new(2));
+
+        let mut threads = vec![];
+
+        for _ in 0..2 {
+            let count_down_clone = count_down.clone();
+            let rb = ring_buffer.clone();
+            threads.push(thread::spawn(move|| {
+
+                count_down_clone.fetch_sub(1, Ordering::SeqCst);
+                while count_down_clone.load(Ordering::Acquire) > 0
+                {
+                    std::thread::yield_now();
+                }
+
+                for _ in 0..NUM_IDS_PER_THREAD
+                {
+                    rb.next_correlation_id();
+                }
+
+            }));
+        }
+
+        for thread in threads {
+            assert!(thread.join().is_ok());
+        }
+
+        assert_eq!(ring_buffer.next_correlation_id(), (NUM_IDS_PER_THREAD * 2) as i64);
+    }
+
+    #[test]
+    fn should_exchange_messages()
+    {
+        let mut spsc_buffer = Align16::new([0 as u8; BUFFER_SZ]);
+        let spsc_ab = AtomicBuffer::wrap(spsc_buffer.as_mut_ptr(), spsc_buffer.len() as u32);
+        let ring_buffer = Arc::new(OneToOneRingBuffer::new(spsc_ab));
+
+
+        let rb = ring_buffer.clone();
+        let thread = thread::spawn(move || {
+            let mut src_buffer = Align16::new([0 as u8; BUFFER_SZ]);
+            let src_ab = AtomicBuffer::wrap(src_buffer.as_mut_ptr(), src_buffer.len() as u32);
+
+            for m in 0..NUM_IDS_PER_THREAD
+            {
+                src_ab.put::<i32>(0, m);
+                while !rb.write(MSG_TYPE_ID, &src_ab, 0, 4)
+                {
+                    std::thread::yield_now();
+                }
+            }
+        });
+
+
+        let mut msg_count: u32 = 0;
+        let mut counts = 0;
+
+        while msg_count < NUM_MESSAGES as u32
+        {
+            let read_count = ring_buffer.read(
+                |msg_type_id, buffer, index, length|
+                    {
+                        let message_number = buffer.get::<i32>(index);
+
+                        assert_eq!(length, 4);
+                        assert_eq!(msg_type_id, MSG_TYPE_ID);
+
+                        assert_eq!(counts, message_number);
+                        counts += 1;
+                    }, u32::max_value());
+
+            if 0 == read_count
+            {
+                std::thread::yield_now();
+            }
+
+            msg_count += read_count;
+        }
+        assert!(thread.join().is_ok());
+    }
+
 }

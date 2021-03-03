@@ -111,6 +111,9 @@ pub trait RingBuffer {
     where F: FnMut(i32, &'a AtomicBuffer, Index, Index);
 
     fn max_msg_length(&self) -> Index;
+
+    fn next_correlation_id(&self) -> i64;
+
 }
 
 pub trait MessageHandler {

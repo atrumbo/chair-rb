@@ -1,4 +1,4 @@
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{Ordering, AtomicI64};
 
 #[inline]
 pub fn thread_fence(){
@@ -36,4 +36,9 @@ pub unsafe fn get_volatile<T>(source: *const T) -> T {
 pub unsafe fn put_ordered<T>(dest: *mut T, value: T) {
     release();
     std::ptr::write(dest, value);
+}
+
+#[inline]
+pub unsafe fn get_and_add_i64(src: *const i64, increment: i64) -> i64{
+    (&*(src as *const AtomicI64)).fetch_add(increment, Ordering::SeqCst)
 }

@@ -121,6 +121,10 @@ impl RingBuffer for ManyToOneRingBuffer {
     fn max_msg_length(&self) -> i32 {
         self.max_msg_length
     }
+
+    fn next_correlation_id(&self) -> i64 {
+        unimplemented!()
+    }
 }
 
 
