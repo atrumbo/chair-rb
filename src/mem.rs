@@ -1,13 +1,13 @@
-use std::ops::{DerefMut, Deref};
+use std::ops::{Deref, DerefMut};
 
 #[repr(align(16))]
 pub struct Align16<T> {
-    pub(crate) aligned: T
+    pub(crate) aligned: T,
 }
 
-impl <T> Align16<T> {
+impl<T> Align16<T> {
     pub fn new(aligned: T) -> Align16<T> {
-        Align16::<T>{ aligned }
+        Align16::<T> { aligned }
     }
 }
 

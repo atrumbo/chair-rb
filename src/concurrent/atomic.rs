@@ -1,29 +1,27 @@
-use std::sync::atomic::{Ordering, AtomicI64};
+use std::sync::atomic::{AtomicI64, Ordering};
 
 #[inline]
-pub fn thread_fence(){
+pub fn thread_fence() {
     std::sync::atomic::fence(Ordering::AcqRel);
 }
 
 #[inline]
-pub fn fence(){
+pub fn fence() {
     std::sync::atomic::fence(Ordering::SeqCst);
 }
 
 #[inline]
-pub fn acquire(){
+pub fn acquire() {
     std::sync::atomic::fence(Ordering::Acquire)
 }
 
 #[inline]
-pub fn release(){
+pub fn release() {
     std::sync::atomic::fence(Ordering::Release)
 }
 
 #[inline]
-pub fn cpu_pause(){
-}
-
+pub fn cpu_pause() {}
 
 #[inline]
 pub unsafe fn get_volatile<T>(source: *const T) -> T {
@@ -39,23 +37,19 @@ pub unsafe fn put_ordered<T>(dest: *mut T, value: T) {
 }
 
 #[inline]
-pub unsafe fn get_and_add_i64(src: *const i64, increment: i64) -> i64{
+pub unsafe fn get_and_add_i64(src: *const i64, increment: i64) -> i64 {
     (&*(src as *const AtomicI64)).fetch_add(increment, Ordering::SeqCst)
 }
 
 #[inline]
-pub unsafe fn cmpxchg(address: *const i64, expected: i64, desired: i64) -> i64 {
-
-    match (&*(address as *const AtomicI64)).compare_exchange(expected, desired, Ordering::SeqCst, Ordering::SeqCst) {
-        Ok(x) => return x,
-        Err(x) => return x,
+pub unsafe fn compare_exchange(address: *const i64, expected: i64, desired: i64) -> i64 {
+    match (&*(address as *const AtomicI64)).compare_exchange(
+        expected,
+        desired,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+    ) {
+        Ok(x) => x,
+        Err(x) => x,
     }
 }
-//     {
-//         return expected;
-//     }
-//     else
-//     {
-//         return *address;
-//     }
-// }
