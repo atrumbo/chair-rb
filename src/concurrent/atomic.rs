@@ -42,3 +42,20 @@ pub unsafe fn put_ordered<T>(dest: *mut T, value: T) {
 pub unsafe fn get_and_add_i64(src: *const i64, increment: i64) -> i64{
     (&*(src as *const AtomicI64)).fetch_add(increment, Ordering::SeqCst)
 }
+
+#[inline]
+pub unsafe fn cmpxchg(address: *const i64, expected: i64, desired: i64) -> i64 {
+
+    match (&*(address as *const AtomicI64)).compare_exchange(expected, desired, Ordering::SeqCst, Ordering::SeqCst) {
+        Ok(x) => return x,
+        Err(x) => return x,
+    }
+}
+//     {
+//         return expected;
+//     }
+//     else
+//     {
+//         return *address;
+//     }
+// }

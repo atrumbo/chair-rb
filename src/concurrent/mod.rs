@@ -134,10 +134,17 @@ impl AtomicBuffer {
         }
     }
 
-    pub fn get_int64_volatile(&self, index: Index) -> i64 {
+    pub fn get_i64_volatile(&self, index: Index) -> i64 {
         self.bounds_check(index, size_of::<i64>());
         unsafe {
             atomic::get_volatile(self.buffer.offset(index as isize) as *const i64)
+        }
+    }
+
+    pub fn get_i32_volatile(&self, index: Index) -> i32 {
+        self.bounds_check(index, size_of::<i32>());
+        unsafe {
+            atomic::get_volatile(self.buffer.offset(index as isize) as *const i32)
         }
     }
 
@@ -152,7 +159,14 @@ impl AtomicBuffer {
         self.bounds_check(index, length as usize);
         unsafe {
             std::ptr::write_bytes(self.buffer.offset(index as isize), value, length as usize);
+        }
+    }
 
+    pub fn compare_and_set_i64(&self, index: Index, expected_value: i64, updated_value: i64) -> bool {
+        self.bounds_check(index, size_of::<i64>());
+        unsafe {
+            let original = atomic::cmpxchg(self.buffer.offset(index as isize) as *const i64, expected_value, updated_value);
+            return original == expected_value;
         }
     }
 

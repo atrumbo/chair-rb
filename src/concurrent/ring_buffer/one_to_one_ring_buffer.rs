@@ -60,7 +60,7 @@ impl RingBuffer for OneToOneRingBuffer {
         let available_capacity: Index = self.capacity - (tail - head) as Index;
 
         if required_capacity > available_capacity {
-            head = self.buffer.get_int64_volatile(self.head_position_index);
+            head = self.buffer.get_i64_volatile(self.head_position_index);
 
             if required_capacity > (self.capacity - (tail - head) as Index)
             {
@@ -79,7 +79,7 @@ impl RingBuffer for OneToOneRingBuffer {
 
             if required_capacity > head_index
             {
-                head = self.buffer.get_int64_volatile(self.head_position_index);
+                head = self.buffer.get_i64_volatile(self.head_position_index);
                 head_index = (head & mask) as Index;
 
                 if required_capacity > head_index
@@ -124,7 +124,7 @@ impl RingBuffer for OneToOneRingBuffer {
 
         while (bytes_read.get() < contiguous_block_length) && (messages_read < message_count_limit) {
             let record_index: Index = head_index + bytes_read.get();
-            let header: i64 = self.buffer.get_int64_volatile(record_index);
+            let header: i64 = self.buffer.get_i64_volatile(record_index);
             let record_length: Index = RecordDescriptor::record_length(header);
 
             if record_length <= 0
@@ -157,6 +157,10 @@ impl RingBuffer for OneToOneRingBuffer {
     fn next_correlation_id(&self) -> i64 {
         return self.buffer.get_and_add_i64(self.correlation_id_counter_index, 1);
     }
+
+    fn unblock(&self) -> bool {
+        false
+    }
 }
 
 
@@ -179,8 +183,8 @@ mod tests {
 
 
     struct OneToOneRingBufferTest {
-        // buffer: Align16<Vec<u8>>,
-        // src_buffer: Align16<Vec<u8>>,
+        _buffer: Align16<Vec<u8>>,
+        _src_buffer: Align16<Vec<u8>>,
         ab: AtomicBuffer,
         src_ab: AtomicBuffer,
         ring_buffer: OneToOneRingBuffer,
@@ -195,8 +199,8 @@ mod tests {
             let ring_buffer = OneToOneRingBuffer::new(ab);
 
             OneToOneRingBufferTest {
-                // buffer,
-                // src_buffer,
+                _buffer: buffer,
+                _src_buffer: src_buffer,
                 ab,
                 src_ab,
                 ring_buffer,

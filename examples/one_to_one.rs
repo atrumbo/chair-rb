@@ -72,7 +72,7 @@ fn main() {
                 println!("ConsumerThread: Got Poison - msg_type_id: {} value: {}, received total {}", msg_type_id, value, times_called);
             }
 
-        }, 10);
+        },u32::max_value());
     }
 
     let elapsed = instant.elapsed();

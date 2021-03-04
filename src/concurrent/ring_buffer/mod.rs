@@ -114,6 +114,8 @@ pub trait RingBuffer {
 
     fn next_correlation_id(&self) -> i64;
 
+    fn unblock(&self) -> bool;
+
 }
 
 pub trait MessageHandler {
