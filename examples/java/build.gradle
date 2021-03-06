@@ -1,0 +1,30 @@
+plugins {
+    id 'java'
+}
+
+plugins {
+    id 'application'
+}
+
+repositories {
+    mavenCentral()
+}
+
+
+
+application {
+    mainClass = 'ChairRB'
+    applicationDefaultJvmArgs = ['-Djava.library.path=jnilib/target/release/']
+}
+
+dependencies {
+    implementation group: 'org.agrona', name: 'agrona', version: '1.9.0'
+}
+
+task cargoBuild(type:Exec){
+    workingDir 'jnilib'
+    commandLine 'cargo', 'build', '--release'
+}
+
+build.dependsOn cargoBuild
+run.dependsOn cargoBuild

@@ -1,0 +1,12 @@
+[package]
+name = "jnilib"
+version = "0.1.0"
+authors = ["atrumbo <atrumbo@users.noreply.github.com>"]
+edition = "2018"
+
+[dependencies]
+chair-rb = { path = "../../../" }
+jni = "0.19.0"
+
+[lib]
+crate_type = ["cdylib"]
