@@ -1,5 +1,5 @@
 [package]
-name = "rust-agrona-rb"
+name = "chair-rb"
 version = "0.1.0"
 authors = ["atrumbo <atrumbo@users.noreply.github.com>"]
 edition = "2018"
