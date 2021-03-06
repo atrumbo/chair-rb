@@ -221,8 +221,8 @@ mod tests {
         fn new(buffer_size: usize) -> OneToOneRingBufferTest {
             let mut buffer = Align16::new(vec![0 as u8; buffer_size]);
             let mut src_buffer = Align16::new(vec![0 as u8; buffer_size]);
-            let ab = AtomicBuffer::wrap(buffer.as_mut_ptr(), buffer.len() as u32);
-            let src_ab = AtomicBuffer::wrap(src_buffer.as_mut_ptr(), src_buffer.len() as u32);
+            let ab = AtomicBuffer::wrap(&mut buffer);
+            let src_ab = AtomicBuffer::wrap(&mut src_buffer);
             let ring_buffer = OneToOneRingBuffer::new(ab);
 
             OneToOneRingBufferTest {
@@ -256,8 +256,8 @@ mod tests {
         expected = "Capacity must be a positive power of 2 + TRAILER_LENGTH: capacity=1023"
     )]
     fn should_panic_for_capacity_not_power_of_two() {
-        let mut test_buffer: Align16<[u8; ODD_BUFFER_SZ]> = Align16::new([0; ODD_BUFFER_SZ]);
-        let ab = AtomicBuffer::wrap(test_buffer.as_mut_ptr(), test_buffer.len() as u32);
+        let mut test_buffer = Align16::new([0 as u8; ODD_BUFFER_SZ]);
+        let ab = AtomicBuffer::wrap(&mut *test_buffer);
         let _ring_buffer = OneToOneRingBuffer::new(ab);
     }
 
@@ -685,7 +685,7 @@ mod tests {
     #[test]
     fn should_provide_correlation_ids() {
         let mut spsc_buffer = Align16::new([0 as u8; BUFFER_SZ]);
-        let spsc_ab = AtomicBuffer::wrap(spsc_buffer.as_mut_ptr(), spsc_buffer.len() as u32);
+        let spsc_ab = AtomicBuffer::wrap(&mut *spsc_buffer);
         let ring_buffer = Arc::new(OneToOneRingBuffer::new(spsc_ab));
 
         let count_down = Arc::new(AtomicUsize::new(2));
@@ -720,13 +720,13 @@ mod tests {
     #[test]
     fn should_exchange_messages() {
         let mut spsc_buffer = Align16::new([0 as u8; BUFFER_SZ]);
-        let spsc_ab = AtomicBuffer::wrap(spsc_buffer.as_mut_ptr(), spsc_buffer.len() as u32);
+        let spsc_ab = AtomicBuffer::wrap(&mut *spsc_buffer);
         let ring_buffer = Arc::new(OneToOneRingBuffer::new(spsc_ab));
 
         let rb = ring_buffer.clone();
         let thread = thread::spawn(move || {
             let mut src_buffer = Align16::new([0 as u8; BUFFER_SZ]);
-            let src_ab = AtomicBuffer::wrap(src_buffer.as_mut_ptr(), src_buffer.len() as u32);
+            let src_ab = AtomicBuffer::wrap(&mut *src_buffer);
 
             for m in 0..NUM_IDS_PER_THREAD {
                 src_ab.put::<i32>(0, m);

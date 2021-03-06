@@ -77,8 +77,8 @@ impl AtomicBuffer {
         self.length as Index
     }
 
-    pub fn wrap(buffer: *mut u8, length: u32) -> AtomicBuffer {
-        AtomicBuffer { buffer, length }
+    pub fn wrap(buffer: &mut [u8]) -> AtomicBuffer {
+        AtomicBuffer { buffer: buffer.as_mut_ptr(), length: buffer.len() as u32 }
     }
 
     pub fn get<T: Copy>(&self, index: Index) -> T {

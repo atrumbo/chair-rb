@@ -1,4 +1,4 @@
-use rust_agrona_rb::concurrent::ring_buffer::{OneToOneRingBuffer, RingBuffer};
+use rust_agrona_rb::concurrent::ring_buffer::{OneToOneRingBuffer, RingBuffer, RingBufferDescriptor};
 use rust_agrona_rb::concurrent::AtomicBuffer;
 use rust_agrona_rb::mem::Align16;
 use std::mem::size_of;
@@ -12,15 +12,14 @@ const POISON_MESSAGE_TYPE: i32 = 42;
 
 fn main() {
     println!("One to One Ring Buffer Example");
-    let mut buf: Align16<[u8; 1024 + 768]> = Align16::new([0; 1024 + 768]);
-    let buffer = AtomicBuffer::wrap(buf.as_mut_ptr(), buf.len() as u32);
-    // let ring_buffer = OneToOneRingBuffer::new(buffer);
+    let mut buf = Align16::new([0 as u8; 1024 + RingBufferDescriptor::TRAILER_LENGTH as usize]);
+    let buffer = AtomicBuffer::wrap(&mut *buf);
     let ring_buffer = Arc::new(OneToOneRingBuffer::new(buffer));
     let rb = Arc::clone(&ring_buffer);
 
     let handle = thread::spawn(move || {
         let mut src_buf: [u8; 128] = [0; 128];
-        let src_buffer = AtomicBuffer::wrap(src_buf.as_mut_ptr(), src_buf.len() as u32);
+        let src_buffer = AtomicBuffer::wrap(&mut src_buf);
 
         let mut sent = 0;
         while sent < MESSAGES_TO_PRODUCE {
@@ -79,7 +78,7 @@ fn main() {
         "Time to receive {} messages {} milliseconds {} message per second",
         times_called,
         elapsed.as_millis(),
-        times_called / elapsed.as_secs() as u32
+        times_called as u64 / elapsed.as_secs()
     );
 
     handle.join().unwrap();

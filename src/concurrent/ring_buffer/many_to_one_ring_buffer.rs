@@ -313,8 +313,8 @@ mod tests {
         fn new(buffer_size: usize) -> ManyToOneRingBufferTest {
             let mut buffer = Align16::new(vec![0 as u8; buffer_size]);
             let mut src_buffer = Align16::new(vec![0 as u8; buffer_size]);
-            let ab = AtomicBuffer::wrap(buffer.as_mut_ptr(), buffer.len() as u32);
-            let src_ab = AtomicBuffer::wrap(src_buffer.as_mut_ptr(), src_buffer.len() as u32);
+            let ab = AtomicBuffer::wrap(&mut buffer);
+            let src_ab = AtomicBuffer::wrap(&mut src_buffer);
             let ring_buffer = ManyToOneRingBuffer::new(ab);
 
             ManyToOneRingBufferTest {
@@ -348,8 +348,8 @@ mod tests {
         expected = "Capacity must be a positive power of 2 + TRAILER_LENGTH: capacity=1023"
     )]
     fn should_panic_for_capacity_not_power_of_two() {
-        let mut test_buffer: Align16<[u8; ODD_BUFFER_SZ]> = Align16::new([0; ODD_BUFFER_SZ]);
-        let ab = AtomicBuffer::wrap(test_buffer.as_mut_ptr(), test_buffer.len() as u32);
+        let mut test_buffer = *Align16::new([0 as u8; ODD_BUFFER_SZ]);
+        let ab = AtomicBuffer::wrap(&mut test_buffer);
         let _ring_buffer = ManyToOneRingBuffer::new(ab);
     }
 
@@ -921,7 +921,7 @@ mod tests {
     #[test]
     fn should_provide_correlation_ids() {
         let mut mpsc_buffer = Align16::new([0 as u8; BUFFER_SZ]);
-        let mpsc_ab = AtomicBuffer::wrap(mpsc_buffer.as_mut_ptr(), mpsc_buffer.len() as u32);
+        let mpsc_ab = AtomicBuffer::wrap(&mut *mpsc_buffer);
         let ring_buffer = Arc::new(ManyToOneRingBuffer::new(mpsc_ab));
 
         let count_down = Arc::new(AtomicI32::new(NUM_PUBLISHERS));
@@ -956,7 +956,7 @@ mod tests {
     #[test]
     fn should_exchange_messages() {
         let mut mpsc_buffer = Align16::new([0 as u8; BUFFER_SZ]);
-        let mpsc_ab = AtomicBuffer::wrap(mpsc_buffer.as_mut_ptr(), mpsc_buffer.len() as u32);
+        let mpsc_ab = AtomicBuffer::wrap(&mut *mpsc_buffer);
         let ring_buffer = Arc::new(ManyToOneRingBuffer::new(mpsc_ab));
 
         let count_down = Arc::new(AtomicI32::new(NUM_PUBLISHERS));
@@ -979,7 +979,7 @@ mod tests {
                 }
 
                 let mut src_buffer = Align16::new([0 as u8; BUFFER_SZ]);
-                let src_ab = AtomicBuffer::wrap(src_buffer.as_mut_ptr(), src_buffer.len() as u32);
+                let src_ab = AtomicBuffer::wrap(&mut *src_buffer);
 
                 src_ab.put::<i32>(0, publisher_id_clone.fetch_add(1, Ordering::SeqCst));
 
