@@ -26,5 +26,4 @@ task cargoBuild(type:Exec){
     commandLine 'cargo', 'build', '--release'
 }
 
-build.dependsOn cargoBuild
 run.dependsOn cargoBuild
