@@ -14,7 +14,7 @@ repositories {
 
 application {
     mainClass = 'ChairRB'
-    applicationDefaultJvmArgs = ['-Djava.library.path=jnilib/target/release/']
+    applicationDefaultJvmArgs = ['-Djava.library.path=jnilib/target/release/', '-server']
 }
 
 dependencies {
