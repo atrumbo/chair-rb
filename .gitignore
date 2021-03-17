@@ -1,4 +1,6 @@
-/target
-.idea/
+**/target
+**/.idea/
 Cargo.lock
-
+.gradle
+**/build
+.DS_Store

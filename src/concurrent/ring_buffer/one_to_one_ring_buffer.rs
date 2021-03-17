@@ -62,7 +62,8 @@ impl RingBuffer for OneToOneRingBuffer {
         self.check_msg_length(length);
 
         let record_length: Index = length + RecordDescriptor::HEADER_LENGTH;
-        let required_capacity: Index = bit_util::align(record_length, RecordDescriptor::ALIGNMENT);
+        let aligned_record_length: Index = bit_util::align(record_length, RecordDescriptor::ALIGNMENT);
+        let required_capacity: Index = aligned_record_length + RecordDescriptor::HEADER_LENGTH;
         let mask: i64 = self.capacity as i64 - 1;
 
         let mut head = self.buffer.get_i64(self.head_cache_position_index);
@@ -100,13 +101,19 @@ impl RingBuffer for OneToOneRingBuffer {
             padding = to_buffer_end_length;
         }
 
+        self.buffer.put_i64_ordered(self.tail_position_index, tail + (aligned_record_length + padding) as i64);
+
         if 0 != padding {
+            self.buffer.put_i64(0, 0);
+
             self.buffer.put_i64_ordered(
                 record_index,
                 RecordDescriptor::make_header(padding, RecordDescriptor::PADDING_MSG_TYPE_ID),
             );
             record_index = 0;
         }
+
+        self.buffer.put_i64(record_index + aligned_record_length, 0); // pre-zero next message header
 
         self.buffer.put_bytes(
             RecordDescriptor::encoded_msg_offset(record_index),
@@ -117,10 +124,6 @@ impl RingBuffer for OneToOneRingBuffer {
         self.buffer.put_i64_ordered(
             record_index,
             RecordDescriptor::make_header(record_length, msg_type_id),
-        );
-        self.buffer.put_i64_ordered(
-            self.tail_position_index,
-            tail + (required_capacity + padding) as i64,
         );
 
         return true;
