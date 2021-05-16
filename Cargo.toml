@@ -3,6 +3,10 @@ name = "chair-rb"
 version = "0.1.0"
 authors = ["atrumbo <atrumbo@users.noreply.github.com>"]
 edition = "2018"
+license = "Apache-2.0"
+description = "Crate containing a Rust port of the ring buffers from the Aeron and compatible with the ring buffers in the Agrona(https://github.com/real-logic/agrona) library."
+repository = "https://github.com/atrumbo/chair-rb/"
+keywords = ["aeron", "agrona", "ringbuffer"]
 
 [dependencies]
 scopeguard = "1.1.0"
