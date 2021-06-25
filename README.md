@@ -1,5 +1,5 @@
 # chair-rb
-[![License](https://img.shields.io/github/license/atrumbo/chair-rb.svg)](https://github.com/atrumbo/chair-rb/blob/main/LICENSE)   
+[![License](https://img.shields.io/github/license/atrumbo/chair-rb)](https://github.com/atrumbo/chair-rb/blob/main/LICENSE)   
 [![CI](https://github.com/atrumbo/chair-rb/actions/workflows/rust.yml/badge.svg)](https://github.com/atrumbo/chair-rb/actions)
 
 Crate containing a Rust port of the ring buffers from the [Aeron](https://github.com/real-logic/aeron) and compatible with the ring buffers in the [Agrona](https://github.com/real-logic/agrona) library. 
